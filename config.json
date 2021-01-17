@@ -1,0 +1,8 @@
+{
+  "database": {
+    "host": "dynamic-secrets-postgres",
+    "port": 5432,
+    "database": "postgres",
+    "secret_role": "example"
+  }
+}

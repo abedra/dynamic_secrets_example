@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+set -e
+
+VAULT_VERSION=1.6.1
+
+if [[ ! -f "bin/vault" ]]; then
+    mkdir -p bin
+
+    pushd bin
+
+    curl -O -L https://releases.hashicorp.com/vault/$VAULT_VERSION/vault_"$VAULT_VERSION"_linux_amd64.zip
+    unzip vault_"$VAULT_VERSION"_linux_amd64.zip
+    rm vault_"$VAULT_VERSION"_linux_amd64.zip
+
+    popd
+fi
+
+export VAULT_ADDR=http://127.0.0.1:8200
+VAULT=bin/vault
+
+$VAULT login
+$VAULT policy write example vault/example.hcl
+$VAULT auth enable approle
+$VAULT write auth/approle/role/client policies="example"
+ROLE_ID=$($VAULT read auth/approle/role/client/role-id | grep role_id | awk '{print $2}')
+SECRET_ID=$($VAULT write -f auth/approle/role/client/secret-id | grep -m1 secret_id | awk '{print $2}')
+$VAULT secrets enable database
+$VAULT write database/config/postgresql    \
+    plugin_name=postgresql-database-plugin \
+    allowed_roles="example"                \
+    username="postgres"                    \
+    password="postgres"                    \
+    connection_url="postgresql://{{username}}:{{password}}@dynamic-secrets-postgres:5432?sslmode=disable"
+$VAULT write database/roles/example \
+    db_name=postgresql              \
+    default_ttl="1h"                \
+    max_ttl="24h"                   \
+    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" 
+
+rm -f .env
+
+echo "APPROLE_ROLE_ID=$ROLE_ID" >> .env
+echo "APPROLE_SECRET_ID=$SECRET_ID" >> .env
